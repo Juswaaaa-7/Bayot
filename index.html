@@ -78,14 +78,40 @@
     let currentDest = null;
     let currentDestName = null;
 
-    // control timings
-    const watchThrottleMs = 1000;
-    const rerouteThrottleMs = 4000;
-    const rerouteMoveThresholdM = 8;
+    // control timings — tuned for aggressive follow (reroute when user moves ~1m)
+    // watchThrottleMs: marker/map update frequency (ms)
+    // rerouteThrottleMs: minimum time between direction requests (ms)
+    // rerouteMoveThresholdM: distance (meters) user must move to trigger reroute
+    const watchThrottleMs = 300;       // update marker/map up to ~3x per second
+    const rerouteThrottleMs = 1000;    // allow reroutes at most once per second
+    const rerouteMoveThresholdM = 1;   // request new route when moved more than ~1 meter
 
     const autoFollow = true;
     let schoolPolygon = null;
     const MAX_ROUTE_RETRIES = 3;
+
+    // Only force required waypoint sequences when origin or destination
+    // is reasonably near the waypoint set (meters).
+    const WAYPOINT_FORCE_DIST_M = 50;
+
+    // compute minimum distance (meters) from a point to the list of waypoints
+    function minDistanceToWaypoints(point, requiredWaypoints) {
+      if (!requiredWaypoints || requiredWaypoints.length === 0) return Infinity;
+      let minD = Infinity;
+      for (const wp of requiredWaypoints) {
+        const d = getDistanceMeters(point, wp);
+        if (d < minD) minD = d;
+      }
+      return minD;
+    }
+
+    // Recommend using required waypoints only if origin or destination is near them
+    function shouldUseRequiredWaypoints(origin, destination, requiredWaypoints) {
+      if (!requiredWaypoints || requiredWaypoints.length === 0) return false;
+      const dOrigin = minDistanceToWaypoints(origin, requiredWaypoints);
+      const dDest = minDistanceToWaypoints(destination, requiredWaypoints);
+      return Math.min(dOrigin, dDest) <= WAYPOINT_FORCE_DIST_M;
+    }
 
     // REQUIRED WAYPOINTS: strict waypoint sequences for two destinations
     const REQUIRED_WAYPOINTS = {
@@ -353,8 +379,10 @@
         const userPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         updateUserMarker(userPos);
         fitBoundsBetween(userPos, currentDest);
-        // pass any required waypoints for the selected destination (if configured)
-        createRoute(userPos, currentDest, REQUIRED_WAYPOINTS[currentDestName] || []);
+        // only include required waypoints when the user is near them (recommended)
+        const reqWps = REQUIRED_WAYPOINTS[currentDestName] || [];
+        const useReq = shouldUseRequiredWaypoints(userPos, currentDest, reqWps);
+        createRoute(userPos, currentDest, useReq ? reqWps : []);
       }, err => {
         console.error('Location denied/unavailable', err);
       }, { enableHighAccuracy: true, maximumAge: 0, timeout: 12000 });
@@ -379,7 +407,9 @@
                             (now - lastRouteTime > rerouteThrottleMs * 3);
 
         if (needReroute && (now - lastRouteTime > rerouteThrottleMs)) {
-          createRoute(userPos, currentDest, REQUIRED_WAYPOINTS[currentDestName] || []);
+          const reqWpsWatch = REQUIRED_WAYPOINTS[currentDestName] || [];
+          const useReqWatch = shouldUseRequiredWaypoints(userPos, currentDest, reqWpsWatch);
+          createRoute(userPos, currentDest, useReqWatch ? reqWpsWatch : []);
         }
       }, err => {
         console.error('Watch position failed', err);
