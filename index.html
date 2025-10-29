@@ -18,9 +18,9 @@
     button:disabled{background:#b0b0b0;cursor:not-allowed}
     @media (max-width:600px){#top-controls{max-width:95vw}}
 
-    /* Force-hide common floating Google panels that appear on the map (BUT do NOT hide our #directions-panel) */
-    /* Keep this narrow so the directions panel we attach remains visible */
-    .adp, .adp-panel, .gm-style .adp, .gm-style .adp-panel {
+    /* Force-hide any Google directions floating panel injected into the map
+       NOTE: do NOT hide our #directions-panel (text panel inside controls) */
+    .adp, .adp-panel, .gm-style .adp, .gm-style .adp-panel, .gmnoprint[dir] {
       display: none !important;
       visibility: hidden !important;
       opacity: 0 !important;
@@ -164,12 +164,11 @@
 
       // no static markers — we'll show only the selected destination marker
 
-      // remove injected floating panels if any (we still remove known floating classes)
+      // remove known floating "adp" panels but leave our directions panel intact
       setTimeout(() => {
         const candidates = document.querySelectorAll('.adp, .adp-panel, .gmnoprint[dir]');
         candidates.forEach(el => el.remove());
       }, 500);
-
       // apply school boundary and restrictions
       applySchoolBoundary(SCHOOL_BOUNDARY_COORDS);
     }
@@ -404,6 +403,11 @@
     // keep the change handler that sets currentDest/currentDestName
     selectEl.addEventListener('change', () => {
       if (!selectEl.value) return;
+      // hide/clear previous directions when selecting a new destination
+      const dp = document.getElementById('directions-panel');
+      if (dp) { dp.style.display = 'none'; dp.innerHTML = ''; }
+      if (directionsRenderer) directionsRenderer.set('directions', null);
+
       currentDest = (function(csv){ const [lat,lng]=csv.split(',').map(Number); return {lat,lng}; })(selectEl.value);
       currentDestName = selectEl.selectedOptions[0].text;
       updateDestMarker(currentDest, currentDestName);
@@ -411,6 +415,27 @@
       map.setCenter(currentDest);
       map.setZoom(17);
     });
+
+    // show only selected destination marker (red pushpin)
+    function updateDestMarker(latlng, label) {
+      try {
+        // hide directions text while user reselects destination
+        const dp = document.getElementById('directions-panel');
+        if (dp) dp.style.display = 'none';
+
+        if (destMarker) destMarker.setMap(null);
+        destMarker = new google.maps.Marker({
+          position: latlng,
+          map,
+          title: label,
+          icon: {
+            url: "http://maps.google.com/mapfiles/ms/icons/red-pushpin.png"
+          }
+        });
+      } catch (err) {
+        console.error('updateDestMarker error', err);
+      }
+    }
 
     // Single, reliable start handler
     function startNavigation() {
