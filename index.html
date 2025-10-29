@@ -18,9 +18,9 @@
     button:disabled{background:#b0b0b0;cursor:not-allowed}
     @media (max-width:600px){#top-controls{max-width:95vw}}
 
-    /* Force-hide any Google directions text panel injected into the map */
-    /* targets common classes used by DirectionsRenderer floating panel */
-    .adp, .adp-panel, .gm-style .adp, .gm-style .adp-panel, .directions-panel, .gmnoprint[dir] {
+    /* Force-hide common floating Google panels that appear on the map (BUT do NOT hide our #directions-panel) */
+    /* Keep this narrow so the directions panel we attach remains visible */
+    .adp, .adp-panel, .gm-style .adp, .gm-style .adp-panel {
       display: none !important;
       visibility: hidden !important;
       opacity: 0 !important;
@@ -162,39 +162,16 @@
         directionsRenderer.setPanel(dirPanel);
       }
 
-      // place static red markers for every destination option (so all destinations are pinned)
-      placeStaticDestinationMarkers();
+      // no static markers — we'll show only the selected destination marker
 
-      // remove injected floating panels if any
+      // remove injected floating panels if any (we still remove known floating classes)
       setTimeout(() => {
-        const candidates = document.querySelectorAll('.adp, .adp-panel, .directions-panel, .gmnoprint[dir]');
+        const candidates = document.querySelectorAll('.adp, .adp-panel, .gmnoprint[dir]');
         candidates.forEach(el => el.remove());
       }, 500);
 
       // apply school boundary and restrictions
       applySchoolBoundary(SCHOOL_BOUNDARY_COORDS);
-    }
-
-    // store static markers for destinations
-    const staticDestMarkers = [];
-    function placeStaticDestinationMarkers() {
-      const sel = document.getElementById('building-select');
-      if (!sel) return;
-      const opts = Array.from(sel.options).filter(o => o.value);
-      opts.forEach(o => {
-        const [lat, lng] = o.value.split(',').map(Number);
-        if (Number.isFinite(lat) && Number.isFinite(lng)) {
-          const mk = new google.maps.Marker({
-            position: { lat, lng },
-            map,
-            title: o.text,
-            icon: {
-              url: "http://maps.google.com/mapfiles/ms/icons/red-dot.png"
-            }
-          });
-          staticDestMarkers.push({ optionText: o.text, marker: mk });
-        }
-      });
     }
 
     // apply polygon, restriction and minZoom
