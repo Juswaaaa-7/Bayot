@@ -87,6 +87,28 @@
     let schoolPolygon = null;
     const MAX_ROUTE_RETRIES = 3;
 
+    // REQUIRED WAYPOINTS: strict waypoint sequences for two destinations
+    const REQUIRED_WAYPOINTS = {
+      "Junior High School Building": [
+        { lat: 9.649228, lng: 123.86768 },
+        { lat: 9.649145, lng: 123.867732 },
+        { lat: 9.649122, lng: 123.867732 },
+        { lat: 9.649086, lng: 123.867674 },
+        { lat: 9.649019, lng: 123.867558 },
+        { lat: 9.648836, lng: 123.86738 },
+        { lat: 9.648786, lng: 123.86736 }
+      ],
+      "Elementary Building": [
+        { lat: 9.649228, lng: 123.86768 },
+        { lat: 9.649145, lng: 123.867732 },
+        { lat: 9.649122, lng: 123.867732 },
+        { lat: 9.649086, lng: 123.867674 },
+        { lat: 9.649019, lng: 123.867558 },
+        { lat: 9.648836, lng: 123.86738 },
+        { lat: 9.648786, lng: 123.86736 }
+      ]
+    };
+
     const SCHOOL_BOUNDARY_COORDS = [
       { lat: 9.6492779, lng: 123.8670981 },
       { lat: 9.6484880, lng: 123.8662200 },
@@ -138,41 +160,6 @@
       return hull;
     }
 
-    function initMap() {
-      map = new google.maps.Map(document.getElementById('map'), {
-        center: { lat: 9.649, lng: 123.868 },
-        zoom: 17,
-        disableDefaultUI: true
-      });
-
-      directionsService = new google.maps.DirectionsService();
-      directionsRenderer = new google.maps.DirectionsRenderer({
-        suppressMarkers: true,
-        panel: null, // will attach below
-        polylineOptions: { strokeColor: '#1976D2', strokeWeight: 6, strokeOpacity: 0.95 }
-      });
-
-      // defensive: ensure no panel is attached and hide any injected panel
-      directionsRenderer.setPanel(null);
-      directionsRenderer.setMap(map);
-
-      // Attach the visible directions panel so turn-by-turn text appears
-      const dirPanel = document.getElementById('directions-panel');
-      if (dirPanel) {
-        directionsRenderer.setPanel(dirPanel);
-      }
-
-      // no static markers — we'll show only the selected destination marker
-
-      // remove known floating "adp" panels but leave our directions panel intact
-      setTimeout(() => {
-        const candidates = document.querySelectorAll('.adp, .adp-panel, .gmnoprint[dir]');
-        candidates.forEach(el => el.remove());
-      }, 500);
-      // apply school boundary and restrictions
-      applySchoolBoundary(SCHOOL_BOUNDARY_COORDS);
-    }
-
     // apply polygon, restriction and minZoom
     function applySchoolBoundary(coords) {
       if (!coords || coords.length < 3) {
@@ -217,176 +204,98 @@
       });
     }
 
-    // check whether a DirectionsResult stays inside the polygon
-    function routeIsInsidePolygon(result) {
-      if (!schoolPolygon || !result || !result.routes || result.routes.length === 0) return false;
-      const overview = result.routes[0].overview_path || [];
-      for (let i = 0; i < overview.length; i++) {
-        if (!google.maps.geometry.poly.containsLocation(overview[i], schoolPolygon)) {
-          return false;
-        }
-      }
-      return true;
-    }
-
-    // simple centroid computation to pick an interior waypoint (usually inside for convex-ish shapes)
-    function computeCentroid(coords) {
-      let x = 0, y = 0, z = 0;
-      coords.forEach(c => {
-        const lat = c.lat * Math.PI / 180;
-        const lng = c.lng * Math.PI / 180;
-        x += Math.cos(lat) * Math.cos(lng);
-        y += Math.cos(lat) * Math.sin(lng);
-        z += Math.sin(lat);
+    function initMap() {
+      map = new google.maps.Map(document.getElementById('map'), {
+        center: { lat: 9.649, lng: 123.868 },
+        zoom: 17,
+        disableDefaultUI: true
       });
-      const total = coords.length;
-      x /= total; y /= total; z /= total;
-      const centralLng = Math.atan2(y, x);
-      const hyp = Math.sqrt(x * x + y * y);
-      const centralLat = Math.atan2(z, hyp);
-      return { lat: centralLat * 180 / Math.PI, lng: centralLng * 180 / Math.PI };
+
+      directionsService = new google.maps.DirectionsService();
+      directionsRenderer = new google.maps.DirectionsRenderer({
+        suppressMarkers: true,
+        polylineOptions: { strokeColor: '#1976D2', strokeWeight: 6, strokeOpacity: 0.95 }
+      });
+      directionsRenderer.setMap(map);
+      // attach our on-page directions panel so textual steps appear
+      const dirPanel = document.getElementById('directions-panel');
+      if (dirPanel) directionsRenderer.setPanel(dirPanel);
+
+      // apply school boundary and restrictions (keep boundary to lock view)
+      applySchoolBoundary(SCHOOL_BOUNDARY_COORDS);
     }
 
-    // request route with retry using an interior waypoint (centroid) if route goes outside polygon
-    function requestRouteWithRetries(origin, destination, requiredWaypoints = [], attempt = 0) {
+    // SIMPLE ROUTE: single request, optionally include REQUIRED_WAYPOINTS for two destinations
+    function createRoute(origin, destination, requiredWaypoints = []) {
       const req = {
         origin,
         destination,
         travelMode: google.maps.TravelMode.WALKING,
         optimizeWaypoints: false
       };
-
-      // include required waypoints (forced path) in order, if any
       if (requiredWaypoints && requiredWaypoints.length > 0) {
         req.waypoints = requiredWaypoints.map(wp => ({ location: wp, stopover: false }));
-      } else {
-        req.waypoints = [];
       }
-
-      // if this is a retry, append the centroid as an additional non-stopover waypoint
-      if (attempt > 0) {
-        const centroid = computeCentroid(SCHOOL_BOUNDARY_COORDS);
-        req.waypoints.push({ location: centroid, stopover: false });
-      }
-
       directionsService.route(req, (result, status) => {
         if (status === 'OK' && result) {
-          if (routeIsInsidePolygon(result) || attempt >= MAX_ROUTE_RETRIES) {
-            // accept this route
-            directionsRenderer.setDirections(result);
-
-            // show directions panel when we have a route
-            const dp = document.getElementById('directions-panel');
-            if (dp) dp.style.display = 'block';
-
-            lastRouteTime = Date.now();
-            lastRouteOrigin = origin;
-            updateUserMarker(origin);
-            updateDestMarker(destination, document.getElementById('building-select').selectedOptions[0]?.text || '');
-            if (!routeIsInsidePolygon(result)) {
-              console.warn('Route goes outside boundary and retry limit reached; showing best available route.');
-            }
-          } else {
-            // route goes outside polygon -> retry with a waypoint inside
-            if (attempt + 1 <= MAX_ROUTE_RETRIES) {
-              requestRouteWithRetries(origin, destination, requiredWaypoints, attempt + 1);
-            } else {
-              // final fallback: display route anyway
-              directionsRenderer.setDirections(result);
-              const dp2 = document.getElementById('directions-panel');
-              if (dp2) dp2.style.display = 'block';
-            }
-          }
+          directionsRenderer.setDirections(result);
+          const dp = document.getElementById('directions-panel');
+          if (dp) dp.style.display = 'block';
+          lastRouteTime = Date.now();
+          lastRouteOrigin = origin;
         } else {
-          console.error('Directions error:', status);
+          console.error('DirectionsService error:', status, result);
+          alert('Unable to compute route: ' + status);
         }
       });
     }
 
-    // tolerance settings (meters)
-    const WAYPOINT_COVER_TOL_M = 20;    // route point within 20m counts as covering a waypoint
-    const WAYPOINT_FORCE_DIST_M = 50;   // origin/destination within 50m of any waypoint -> force waypoints
-
-    // returns true if the route's overview_path comes within tol meters of every required waypoint
-    function routeCoversWaypoints(result, requiredWaypoints, tol = WAYPOINT_COVER_TOL_M) {
-      // ...existing defensive guards...
-      if (!result || !result.routes || result.routes.length === 0) return false;
-      if (!requiredWaypoints || requiredWaypoints.length === 0) return true;
-      const overview = result.routes[0].overview_path || [];
-      if (!overview || overview.length === 0) return false;
-
-      for (let wi = 0; wi < requiredWaypoints.length; wi++) {
-        const wp = requiredWaypoints[wi];
-        const wpLatLng = new google.maps.LatLng(wp.lat, wp.lng);
-        let hit = false;
-        for (let i = 0; i < overview.length; i++) {
-          const d = google.maps.geometry.spherical.computeDistanceBetween(wpLatLng, overview[i]);
-          if (d <= tol) { hit = true; break; }
-        }
-        if (!hit) return false;
+    // Minimal helper functions used by navigation UI:
+    function updateUserMarker(latlng) {
+      if (userMarker) userMarker.setPosition(latlng);
+      else {
+        userMarker = new google.maps.Marker({
+          position: latlng,
+          map,
+          title: 'You are here',
+          icon: { path: google.maps.SymbolPath.CIRCLE, scale: 7, fillColor: '#1976D2', fillOpacity: 1, strokeWeight: 1 }
+        });
       }
-      return true;
     }
 
-    // compute minimum distance (meters) from a point to the list of waypoints
-    function minDistanceToWaypoints(point, requiredWaypoints) {
-      if (!requiredWaypoints || requiredWaypoints.length === 0) return Infinity;
-      const p = new google.maps.LatLng(point.lat, point.lng);
-      let minD = Infinity;
-      for (const wp of requiredWaypoints) {
-        const w = new google.maps.LatLng(wp.lat, wp.lng);
-        const d = google.maps.geometry.spherical.computeDistanceBetween(p, w);
-        if (d < minD) minD = d;
-      }
-      return minD;
+    function fitBoundsBetween(a, b) {
+      const bounds = new google.maps.LatLngBounds();
+      bounds.extend(a);
+      bounds.extend(b);
+      map.fitBounds(bounds, 70);
     }
 
-    // Smart requester: try without forced waypoints first, decide whether to force them
-    function smartRequestRoute(origin, destination, requiredWaypoints = []) {
-      const testReq = {
-        origin,
-        destination,
-        travelMode: google.maps.TravelMode.WALKING,
-        optimizeWaypoints: false,
-        waypoints: [] // explicitly none for test
-      };
+    function getDistanceMeters(a, b) {
+      const toRad = v => v * Math.PI / 180;
+      const R = 6371000;
+      const dLat = toRad(b.lat - a.lat);
+      const dLon = toRad(b.lng - a.lng);
+      const lat1 = toRad(a.lat);
+      const lat2 = toRad(b.lat);
+      const sinDLat = Math.sin(dLat/2);
+      const sinDLon = Math.sin(dLon/2);
+      const c = 2 * Math.atan2(Math.sqrt(sinDLat*sinDLat + Math.cos(lat1)*Math.cos(lat2)*sinDLon*sinDLon), Math.sqrt(1 - (sinDLat*sinDLat + Math.cos(lat1)*Math.cos(lat2)*sinDLon*sinDLon)));
+      return R * c;
+    }
 
-      directionsService.route(testReq, (result, status) => {
-        if (status === 'OK' && result) {
-          if (requiredWaypoints && requiredWaypoints.length > 0 && routeCoversWaypoints(result, requiredWaypoints)) {
-            directionsRenderer.setDirections(result);
-            lastRouteTime = Date.now();
-            lastRouteOrigin = origin;
-            updateUserMarker(origin);
-            updateDestMarker(destination, document.getElementById('building-select').selectedOptions[0]?.text || '');
-            return;
-          }
-
-          // If required waypoints are relevant (Elementary/Junior High), decide whether to force them.
-          if (requiredWaypoints && requiredWaypoints.length > 0) {
-            // If user (origin) or destination is very near any required waypoint, force waypoints
-            const dOrigin = minDistanceToWaypoints(origin, requiredWaypoints);
-            const dDest = minDistanceToWaypoints(destination, requiredWaypoints);
-            if (Math.min(dOrigin, dDest) <= WAYPOINT_FORCE_DIST_M) {
-              // force waypoints (use existing retry/centroid logic)
-              requestRouteWithRetries(origin, destination, requiredWaypoints, 0);
-              return;
-            }
-          }
-
-          // Otherwise accept the unconstrained route (but still ensure polygon containment via retries)
-          // Use requestRouteWithRetries but with empty requiredWaypoints so centroid retry remains available.
-          requestRouteWithRetries(origin, destination, [], 0);
-        } else {
-          requestRouteWithRetries(origin, destination, requiredWaypoints, 0);
-        }
+    // show only selected destination marker (red pushpin)
+    function updateDestMarker(latlng, label) {
+      // clear any previous directions text
+      const dp = document.getElementById('directions-panel');
+      if (dp) { dp.style.display = 'none'; dp.innerHTML = ''; }
+      if (directionsRenderer) directionsRenderer.set('directions', null);
+      if (destMarker) destMarker.setMap(null);
+      destMarker = new google.maps.Marker({
+        position: latlng,
+        map,
+        title: label,
+        icon: { url: "http://maps.google.com/mapfiles/ms/icons/red-pushpin.png" }
       });
-    }
-
-    // replace simple createRoute with smartRequestRoute usage
-    function createRoute(origin, destination, requiredWaypoints = []) {
-      // prefer smart logic that only forces waypoints when necessary
-      smartRequestRoute(origin, destination, requiredWaypoints);
     }
 
     const selectEl = document.getElementById('building-select');
@@ -415,27 +324,6 @@
       map.setCenter(currentDest);
       map.setZoom(17);
     });
-
-    // show only selected destination marker (red pushpin)
-    function updateDestMarker(latlng, label) {
-      try {
-        // hide directions text while user reselects destination
-        const dp = document.getElementById('directions-panel');
-        if (dp) dp.style.display = 'none';
-
-        if (destMarker) destMarker.setMap(null);
-        destMarker = new google.maps.Marker({
-          position: latlng,
-          map,
-          title: label,
-          icon: {
-            url: "http://maps.google.com/mapfiles/ms/icons/red-pushpin.png"
-          }
-        });
-      } catch (err) {
-        console.error('updateDestMarker error', err);
-      }
-    }
 
     // Single, reliable start handler
     function startNavigation() {
