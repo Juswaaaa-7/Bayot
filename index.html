@@ -199,7 +199,11 @@
       google.maps.event.addListenerOnce(map, 'idle', () => {
         const fitZoom = map.getZoom();
         if (typeof fitZoom === 'number') {
-          map.setOptions({ minZoom: fitZoom });
+          // allow one zoom level out from the fit so the map is less tightly zoomed
+          const relaxed = Math.max(12, fitZoom - 1); // floor at 12 to avoid too-far zoom out
+          map.setOptions({ minZoom: relaxed });
+          // optionally set current zoom to the relaxed level so user sees the less-zoomed view immediately
+          if (map.getZoom() > relaxed) map.setZoom(relaxed);
         }
       });
     }
@@ -207,7 +211,7 @@
     function initMap() {
       map = new google.maps.Map(document.getElementById('map'), {
         center: { lat: 9.649, lng: 123.868 },
-        zoom: 17,
+        zoom: 15, // lowered default zoom so map starts less zoomed-in
         disableDefaultUI: true
       });
 
@@ -322,7 +326,7 @@
       updateDestMarker(currentDest, currentDestName);
       startBtn.disabled = false;
       map.setCenter(currentDest);
-      map.setZoom(17);
+      map.setZoom(15); // use a lower zoom when focusing the chosen destination
     });
 
     // Single, reliable start handler
